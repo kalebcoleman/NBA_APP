@@ -33,7 +33,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=8080
-ENV DATABASE_URL=/app/db/nba.sqlite
+ENV DATABASE_URL=/tmp/nba.sqlite
+ENV DATABASE_PATH=/tmp/nba.sqlite
 
 # Copy only what we need to run
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
@@ -48,4 +49,4 @@ COPY --from=builder /app/db/local/nba.sqlite ./db/nba.sqlite
 
 EXPOSE 8080
 
-CMD ["node", "apps/api/dist/src/index.js"]
+CMD ["sh", "-c", "cp -f /app/db/nba.sqlite /tmp/nba.sqlite && chmod 666 /tmp/nba.sqlite && node apps/api/dist/src/index.js"]
