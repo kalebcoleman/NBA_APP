@@ -31,5 +31,5 @@ pnpm-debug.log*
 *.db-wal
 *.db-journal
 
-# Keep canonical local NBA DB tracked by default
-# (do not ignore db/local/nba.sqlite unless intentionally changed)
+# Local SQLite database copy (too large for git push)
+db/local/nba.sqlite
