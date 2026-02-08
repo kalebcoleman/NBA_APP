@@ -1,0 +1,4 @@
+
+# ignore local sqlite
+*.sqlite
+db/local/
