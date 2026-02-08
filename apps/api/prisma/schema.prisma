@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Plan {
+  FREE
+  PREMIUM
+}
+
+model User {
+  id            String         @id @default(cuid())
+  externalKey   String         @unique @map("external_key")
+  email         String?        @unique
+  passwordHash  String?        @map("password_hash")
+  name          String?
+  plan          Plan           @default(FREE)
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  subscriptions Subscription[]
+  entitlements  Entitlement?
+  usageDaily    UsageDaily[]
+  queryHistory  QueryHistory[]
+  savedItems    SavedItem[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model Subscription {
+  id                   String   @id @default(cuid())
+  userId               String   @map("user_id")
+  stripeCustomerId     String?  @map("stripe_customer_id")
+  stripeSubscriptionId String?  @unique @map("stripe_subscription_id")
+  status               String
+  plan                 Plan?
+  currentPeriodEnd     DateTime? @map("current_period_end")
+  cancelAtPeriodEnd    Boolean  @default(false) @map("cancel_at_period_end")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([stripeCustomerId])
+  @@map("subscriptions")
+}
+
+model Entitlement {
+  id          String   @id @default(cuid())
+  userId      String   @unique @map("user_id")
+  plan        Plan
+  qaDailyLimit Int     @default(5) @map("qa_daily_limit")
+  qaRowLimit  Int      @default(100) @map("qa_row_limit")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("entitlements")
+}
+
+model UsageDaily {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  usageDate  String   @map("usage_date")
+  qaQueries  Int      @default(0) @map("qa_queries")
+  apiRequests Int     @default(0) @map("api_requests")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, usageDate])
+  @@index([usageDate])
+  @@map("usage_daily")
+}
+
+model QueryHistory {
+  id              String   @id @default(cuid())
+  userId          String   @map("user_id")
+  question        String
+  intent          String
+  parameters      Json?
+  limited         Boolean  @default(false)
+  responseSummary String?  @map("response_summary")
+  createdAt       DateTime @default(now()) @map("created_at")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("query_history")
+}
+
+model SavedItem {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  itemType  String   @map("item_type")
+  itemRef   String   @map("item_ref")
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, itemType])
+  @@map("saved_items")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?  @map("user_id")
+  actorKey   String   @map("actor_key")
+  action     String
+  targetType String   @map("target_type")
+  targetId   String?  @map("target_id")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([actorKey, createdAt])
+  @@map("audit_logs")
+}

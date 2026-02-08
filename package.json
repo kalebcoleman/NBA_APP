@@ -1,0 +1,16 @@
+{
+  "name": "nba-app",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.6.3",
+  "scripts": {
+    "dev": "concurrently \"pnpm dev:api\" \"pnpm dev:web\"",
+    "dev:api": "pnpm --filter @nba-app/api dev",
+    "dev:web": "sh -c 'if [ -f apps/web/package.json ]; then pnpm -C apps/web dev; else echo \"apps/web is not implemented yet (frontend agent will add it).\"; while true; do sleep 3600; done; fi'",
+    "lint": "pnpm --filter @nba-app/api lint",
+    "test": "pnpm --filter @nba-app/api test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

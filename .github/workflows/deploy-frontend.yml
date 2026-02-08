@@ -1,0 +1,51 @@
+name: Deploy Frontend (Azure App Service)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: nba-analytics-web    # Change to your App Service name
+  NODE_VERSION: "18"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Build Next.js (standalone)
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+        run: npm run build
+
+      # Standalone output needs static + public assets copied in
+      - name: Prepare standalone bundle
+        working-directory: apps/web
+        run: |
+          cp -r public .next/standalone/apps/web/public 2>/dev/null || true
+          cp -r .next/static .next/standalone/apps/web/.next/static
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: apps/web/.next/standalone
