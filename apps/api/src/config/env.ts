@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
@@ -36,15 +37,33 @@ const envSchema = z.object({
 
 const parsed = envSchema.parse(process.env);
 
-const databasePath = path.isAbsolute(parsed.DATABASE_PATH)
-  ? parsed.DATABASE_PATH
-  : path.resolve(workspaceRoot, parsed.DATABASE_PATH);
+function resolveAbsolutePath(value: string): string {
+  return path.isAbsolute(value) ? value : path.resolve(workspaceRoot, value);
+}
+
+function filePathFromDatabaseUrl(value: string): string | null {
+  if (value.startsWith('file://')) {
+    return fileURLToPath(value);
+  }
+
+  if (value.startsWith('file:')) {
+    return resolveAbsolutePath(value.slice('file:'.length));
+  }
+
+  if (/^[a-zA-Z]+:/.test(value)) {
+    return null;
+  }
+
+  return resolveAbsolutePath(value);
+}
 
 const explicitDatabaseUrl = parsed.DATABASE_URL?.trim();
+const inferredDatabasePath = explicitDatabaseUrl ? filePathFromDatabaseUrl(explicitDatabaseUrl) : null;
+const databasePath = inferredDatabasePath ?? resolveAbsolutePath(parsed.DATABASE_PATH);
 const databaseUrl = explicitDatabaseUrl && explicitDatabaseUrl.length > 0
   ? (/^[a-zA-Z]+:/.test(explicitDatabaseUrl)
       ? explicitDatabaseUrl
-      : `file:${path.resolve(workspaceRoot, explicitDatabaseUrl)}`)
+      : `file:${resolveAbsolutePath(explicitDatabaseUrl)}`)
   : `file:${databasePath}`;
 
 const apiPort = parsed.API_PORT ?? parsed.PORT ?? 3001;

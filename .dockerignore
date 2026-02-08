@@ -1,4 +1,26 @@
+# Dependencies
+node_modules/
+**/node_modules/
+.pnpm-store/
 
-# ignore local sqlite
-*.sqlite
-db/local/
+# Git / editor
+.git/
+.gitignore
+.DS_Store
+.vscode/
+.idea/
+
+# Build output / caches
+.next/
+apps/web/.next/
+dist/
+**/dist/
+coverage/
+.cache/
+
+# Logs / temp
+*.log
+tmp/
+temp/
+
+# Keep db/local/nba.sqlite included because API image bakes it in.
