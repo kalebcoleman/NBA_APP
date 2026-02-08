@@ -11,9 +11,10 @@ RUN corepack enable && corepack prepare pnpm@9.15.1 --activate
 
 # Install workspace deps
 COPY apps ./apps
+COPY packages ./packages
 COPY db ./db
 COPY docs ./docs
-RUN pnpm -w install --frozen-lockfile
+RUN pnpm -w install --frozen-lockfile --filter @nba-app/api...
 
 # ---- build ----
 FROM node:20-alpine AS builder
@@ -37,6 +38,7 @@ ENV DATABASE_URL=/app/db/nba.sqlite
 # Copy only what we need to run
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
+COPY --from=builder /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
 COPY --from=builder /app/node_modules ./node_modules
 
