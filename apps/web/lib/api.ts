@@ -21,6 +21,7 @@ import type {
   LeaderboardEntry,
   ComparisonPlayer,
   QAResponse,
+  UpcomingGame,
 } from "./types";
 
 import {
@@ -40,7 +41,7 @@ import { getToken } from "./auth";
 // Config
 // ---------------------------------------------------------------------------
 
-const BASE_URL =
+export const BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 
 const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
@@ -87,6 +88,30 @@ function str(v: unknown, fallback = ""): string {
 }
 
 // ---------------------------------------------------------------------------
+// Client-side caching
+// ---------------------------------------------------------------------------
+
+interface CacheEntry<T> {
+  data: T;
+  ts: number;
+}
+
+let teamsCache: CacheEntry<TeamSummary[]> | null = null;
+const leaderboardCache = new Map<string, CacheEntry<LeaderboardEntry[]>>();
+const LEADERBOARD_TTL_MS = 60_000; // 60s
+
+// Dedup in-flight requests
+const inFlight = new Map<string, Promise<any>>();
+
+function dedup<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inFlight.get(key);
+  if (existing) return existing as Promise<T>;
+  const p = fn().finally(() => inFlight.delete(key));
+  inFlight.set(key, p);
+  return p;
+}
+
+// ---------------------------------------------------------------------------
 // Metric mapping: frontend stat keys → backend metric names
 // ---------------------------------------------------------------------------
 
@@ -105,34 +130,56 @@ const STAT_TO_METRIC: Record<string, string> = {
 // Auth / User
 // ---------------------------------------------------------------------------
 
+/** Default anonymous / free-tier profile returned when /me is unavailable. */
+const ANONYMOUS_PROFILE: UserProfile = {
+  id: "anon",
+  email: "",
+  plan: "free",
+  isAuthenticated: false,
+  limits: { qaQueriesPerDay: 5, compareMaxPlayers: 2, leaderboardMaxRows: 10 },
+  usageRemaining: null,
+};
+
 export async function getMe(): Promise<UserProfile> {
   if (USE_MOCKS) {
     return {
       id: "dev_user",
       email: "dev@example.com",
       plan: "free",
+      isAuthenticated: true,
       limits: { qaQueriesPerDay: 5, compareMaxPlayers: 2, leaderboardMaxRows: 10 },
       usageRemaining: { qa: 5 },
     };
   }
 
-  // Backend shape: { user: { id, plan: "FREE"|"PREMIUM", ... }, limits: { qaDailyLimit, ... }, usage: { qaRemaining, ... } }
-  const raw: any = await fetchApi("/me");
+  // Backend shape: { user: { id, plan: "FREE"|"PREMIUM", isAuthenticated, ... }, limits: { ... }, usage: { ... } }
+  let raw: any;
+  try {
+    raw = await fetchApi("/me");
+  } catch (e) {
+    // 401 means backend requires auth and token is missing/invalid — treat as anonymous
+    if (e instanceof ApiError && e.status === 401) {
+      return ANONYMOUS_PROFILE;
+    }
+    throw e;
+  }
 
   const backendPlan = str(raw.user?.plan, "FREE").toLowerCase();
+  const isAuth = raw.user?.isAuthenticated !== false;
 
   return {
     id: str(raw.user?.id, "anon"),
     email: str(raw.user?.email, ""),
     plan: backendPlan === "premium" ? "premium" : "free",
+    isAuthenticated: isAuth,
     limits: {
       qaQueriesPerDay: num(raw.limits?.qaDailyLimit) || 5,
       compareMaxPlayers: 2,    // not exposed by backend; default
       leaderboardMaxRows: 10,  // not exposed by backend; default
     },
-    usageRemaining: {
-      qa: num(raw.usage?.qaRemaining),
-    },
+    usageRemaining: isAuth
+      ? { qa: num(raw.usage?.qaRemaining) }
+      : null,
   };
 }
 
@@ -378,20 +425,28 @@ export async function getPlayerShots(
 export async function getTeams(): Promise<TeamSummary[]> {
   if (USE_MOCKS) return mockTeams;
 
-  const raw: any = await fetchApi("/teams");
-  const rows: any[] = raw.data ?? raw ?? [];
+  // Session-level cache: teams rarely change
+  if (teamsCache) return teamsCache.data;
 
-  return rows.map((r: any) => ({
-    teamId: str(r.team_id ?? r.teamId),
-    name: str(r.team_name ?? r.name),
-    abbreviation: str(r.team_abbrev ?? r.abbreviation),
-    city: str(r.team_city ?? r.city ?? ""),
-    wins: num(r.wins),
-    losses: num(r.losses),
-    offRating: num(r.off_rating ?? r.offRating),
-    defRating: num(r.def_rating ?? r.defRating),
-    netRating: num(r.net_rating ?? r.netRating),
-  }));
+  return dedup("teams", async () => {
+    const raw: any = await fetchApi("/teams");
+    const rows: any[] = raw.data ?? raw ?? [];
+
+    const result = rows.map((r: any) => ({
+      teamId: str(r.team_id ?? r.teamId),
+      name: str(r.team_name ?? r.name),
+      abbreviation: str(r.team_abbrev ?? r.abbreviation),
+      city: str(r.team_city ?? r.city ?? ""),
+      wins: num(r.wins),
+      losses: num(r.losses),
+      offRating: num(r.off_rating ?? r.offRating),
+      defRating: num(r.def_rating ?? r.defRating),
+      netRating: num(r.net_rating ?? r.netRating),
+    }));
+
+    teamsCache = { data: result, ts: Date.now() };
+    return result;
+  });
 }
 
 export async function getTeam(id: string): Promise<TeamDetail> {
@@ -470,22 +525,32 @@ export async function getLeaderboard(
 
   // Map frontend stat name → backend metric name
   const metric = STAT_TO_METRIC[stat] ?? stat;
+  const cacheKey = `${metric}:${params?.season ?? ""}:${params?.limit ?? ""}`;
 
-  const query = new URLSearchParams({ metric });
-  if (params?.season) query.set("season", params.season);
-  if (params?.limit) query.set("limit", String(params.limit));
+  // TTL cache: 60s
+  const cached = leaderboardCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < LEADERBOARD_TTL_MS) return cached.data;
 
-  const raw: any = await fetchApi(`/leaderboards?${query}`);
+  return dedup(`lb:${cacheKey}`, async () => {
+    const query = new URLSearchParams({ metric });
+    if (params?.season) query.set("season", params.season);
+    if (params?.limit) query.set("limit", String(params.limit));
 
-  const rows: any[] = raw.data ?? [];
-  return rows.map((r: any, i: number) => ({
-    rank: num(r.rank) || i + 1,
-    playerId: str(r.player_id ?? r.playerId),
-    name: str(r.player_name ?? r.name),
-    team: str(r.team_abbrev ?? r.team),
-    value: num(r.value),
-    gamesPlayed: num(r.games ?? r.gamesPlayed ?? r.games_played),
-  }));
+    const raw: any = await fetchApi(`/leaderboards?${query}`);
+
+    const rows: any[] = raw.data ?? [];
+    const result = rows.map((r: any, i: number) => ({
+      rank: num(r.rank) || i + 1,
+      playerId: str(r.player_id ?? r.playerId),
+      name: str(r.player_name ?? r.name),
+      team: str(r.team_abbrev ?? r.team),
+      value: num(r.value),
+      gamesPlayed: num(r.games ?? r.gamesPlayed ?? r.games_played),
+    }));
+
+    leaderboardCache.set(cacheKey, { data: result, ts: Date.now() });
+    return result;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -562,6 +627,50 @@ export async function askQuestion(question: string): Promise<QAResponse> {
       plan: str(meta.plan ?? "free"),
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Upcoming Games
+// ---------------------------------------------------------------------------
+
+export async function getUpcomingGames(params?: {
+  from?: string;
+  to?: string;
+  teamId?: string;
+  limit?: number;
+}): Promise<UpcomingGame[]> {
+  if (USE_MOCKS) return [];
+
+  const query = new URLSearchParams();
+  if (params?.from) query.set("from", params.from);
+  if (params?.to) query.set("to", params.to);
+  if (params?.teamId) query.set("teamId", params.teamId);
+  if (params?.limit) query.set("limit", String(params.limit));
+
+  const raw: any = await fetchApi(`/games/upcoming?${query}`);
+
+  const rows: any[] = raw.data ?? raw ?? [];
+  return rows.map((g: any) => ({
+    gameId: str(g.game_id ?? g.gameId),
+    startTime: str(g.start_time ?? g.startTime),
+    status: str(g.status ?? "Scheduled"),
+    homeTeam: {
+      teamId: str(g.home_team?.team_id ?? g.homeTeam?.teamId ?? ""),
+      name: str(g.home_team?.name ?? g.homeTeam?.name ?? ""),
+      abbreviation: str(g.home_team?.abbreviation ?? g.homeTeam?.abbreviation ?? ""),
+      record: str(g.home_team?.record ?? g.homeTeam?.record ?? ""),
+      last10: str(g.home_team?.last10 ?? g.homeTeam?.last10 ?? ""),
+    },
+    awayTeam: {
+      teamId: str(g.away_team?.team_id ?? g.awayTeam?.teamId ?? ""),
+      name: str(g.away_team?.name ?? g.awayTeam?.name ?? ""),
+      abbreviation: str(g.away_team?.abbreviation ?? g.awayTeam?.abbreviation ?? ""),
+      record: str(g.away_team?.record ?? g.awayTeam?.record ?? ""),
+      last10: str(g.away_team?.last10 ?? g.awayTeam?.last10 ?? ""),
+    },
+    lastSyncedAt: str(g.last_synced_at ?? g.lastSyncedAt ?? ""),
+    isStale: g.is_stale === true || g.isStale === true,
+  }));
 }
 
 // ---------------------------------------------------------------------------

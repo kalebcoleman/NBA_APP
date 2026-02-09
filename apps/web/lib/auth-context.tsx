@@ -36,7 +36,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       const profile = await getMe();
-      setUser(profile);
+      // If backend says not authenticated despite having a token, clear the stale token
+      if (!profile.isAuthenticated) {
+        clearToken();
+      }
+      setUser(profile.isAuthenticated ? profile : null);
     } catch {
       // Token invalid or backend down — clear it
       clearToken();

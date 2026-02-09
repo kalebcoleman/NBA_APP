@@ -6,16 +6,17 @@ import Fastify from 'fastify';
 import { authContextHook } from './auth/auth-context.js';
 import { env } from './config/env.js';
 import { prisma } from './db/prisma.js';
-import { sqlite } from './db/sqlite.js';
 import { installErrorHandler } from './middleware/error-handler.js';
 import { createRequestRateLimitHook } from './middleware/request-rate-limit.js';
 import { createUsageTrackingHook } from './middleware/usage-tracker.js';
+import { gamesRoutes } from './routes/games-routes.js';
 import { billingRoutes } from './routes/billing-routes.js';
 import { authRoutes } from './routes/auth-routes.js';
 import { healthRoutes } from './routes/health-routes.js';
 import { meRoutes } from './routes/me-routes.js';
 import { nbaRoutes } from './routes/nba-routes.js';
 import { qaRoutes } from './routes/qa-routes.js';
+import { startUpcomingGamesSyncScheduler } from './services/espn-upcoming-service.js';
 import { buildRateLimitStore } from './services/rate-limit-store.js';
 
 export async function buildServer() {
@@ -58,18 +59,20 @@ export async function buildServer() {
   app.addHook('preHandler', createUsageTrackingHook());
 
   await app.register(healthRoutes);
+  await app.register(gamesRoutes);
   await app.register(authRoutes);
   await app.register(nbaRoutes);
   await app.register(meRoutes);
   await app.register(billingRoutes);
   await app.register(qaRoutes);
 
+  const stopEspnSyncScheduler = startUpcomingGamesSyncScheduler(app.log);
   installErrorHandler(app);
 
   app.addHook('onClose', async () => {
+    stopEspnSyncScheduler();
     await rateLimitStore.close();
     await prisma.$disconnect();
-    sqlite.close();
   });
 
   return app;

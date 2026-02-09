@@ -12,16 +12,22 @@ export default function HomePage() {
   const [topPlayers, setTopPlayers] = useState<PlayerSummary[]>([]);
   const [topTeams, setTopTeams] = useState<TeamSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     async function load() {
-      const [playersRes, teams] = await Promise.all([
-        getPlayers({ limit: 5 }),
-        getTeams(),
-      ]);
-      setTopPlayers(playersRes.data.slice(0, 5));
-      setTopTeams(teams.sort((a, b) => b.netRating - a.netRating).slice(0, 5));
-      setLoading(false);
+      try {
+        const [playersRes, teams] = await Promise.all([
+          getPlayers({ limit: 5 }),
+          getTeams(),
+        ]);
+        setTopPlayers(playersRes.data.slice(0, 5));
+        setTopTeams(teams.sort((a, b) => b.netRating - a.netRating).slice(0, 5));
+      } catch {
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
     }
     load();
   }, []);
@@ -53,57 +59,63 @@ export default function HomePage() {
       </div>
 
       {/* Scoring Leaders & Top Teams */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card title="Scoring Leaders">
-          {loading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-8 animate-pulse rounded bg-gray-100" />
-              ))}
-            </div>
-          ) : (
-            <>
-              <BarChartWrapper
-                data={topPlayers.map((p) => ({ name: p.name.split(" ").pop(), ppg: p.ppg }))}
-                xKey="name"
-                yKey="ppg"
-                color="#c8102e"
-                height={220}
-              />
-              <div className="mt-3 text-right">
-                <Link href="/leaderboards" className="text-sm font-medium text-nba-blue hover:underline">
-                  View full leaderboard →
-                </Link>
+      {error ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
+          <p className="text-sm text-gray-500">Could not load live data. Browse the pages below to explore.</p>
+        </div>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card title="Scoring Leaders">
+            {loading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="h-8 animate-pulse rounded bg-gray-100" />
+                ))}
               </div>
-            </>
-          )}
-        </Card>
+            ) : (
+              <>
+                <BarChartWrapper
+                  data={topPlayers.map((p) => ({ name: p.name.split(" ").pop(), ppg: p.ppg }))}
+                  xKey="name"
+                  yKey="ppg"
+                  color="#c8102e"
+                  height={220}
+                />
+                <div className="mt-3 text-right">
+                  <Link href="/leaderboards" className="text-sm font-medium text-nba-blue hover:underline">
+                    View full leaderboard →
+                  </Link>
+                </div>
+              </>
+            )}
+          </Card>
 
-        <Card title="Top Teams by Net Rating">
-          {loading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-8 animate-pulse rounded bg-gray-100" />
-              ))}
-            </div>
-          ) : (
-            <>
-              <BarChartWrapper
-                data={topTeams.map((t) => ({ name: t.abbreviation, netRating: t.netRating }))}
-                xKey="name"
-                yKey="netRating"
-                color="#1d428a"
-                height={220}
-              />
-              <div className="mt-3 text-right">
-                <Link href="/teams" className="text-sm font-medium text-nba-blue hover:underline">
-                  View all teams →
-                </Link>
+          <Card title="Top Teams by Net Rating">
+            {loading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="h-8 animate-pulse rounded bg-gray-100" />
+                ))}
               </div>
-            </>
-          )}
-        </Card>
-      </div>
+            ) : (
+              <>
+                <BarChartWrapper
+                  data={topTeams.map((t) => ({ name: t.abbreviation, netRating: t.netRating }))}
+                  xKey="name"
+                  yKey="netRating"
+                  color="#1d428a"
+                  height={220}
+                />
+                <div className="mt-3 text-right">
+                  <Link href="/teams" className="text-sm font-medium text-nba-blue hover:underline">
+                    View all teams →
+                  </Link>
+                </div>
+              </>
+            )}
+          </Card>
+        </div>
+      )}
 
       {/* Feature Cards */}
       <div className="grid gap-4 sm:grid-cols-3">

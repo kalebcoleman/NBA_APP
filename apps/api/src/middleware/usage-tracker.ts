@@ -4,11 +4,15 @@ import { incrementUsage } from '../services/usage-service.js';
 
 export function createUsageTrackingHook() {
   return async function usageTrackingHook(request: FastifyRequest) {
-    if (request.url.startsWith('/health') || request.url.startsWith('/billing/webhook')) {
+    if (
+      request.url.startsWith('/health')
+      || request.url.startsWith('/billing/webhook')
+      || request.url.startsWith('/auth/')
+    ) {
       return;
     }
 
-    if (!request.auth?.userId) {
+    if (!request.auth?.isAuthenticated || !request.auth.userId) {
       return;
     }
 

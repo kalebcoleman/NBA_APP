@@ -67,7 +67,7 @@ export async function nbaRoutes(app: FastifyInstance) {
     const page = clampInt(toInt(query.page, 1), 1, 100_000);
     const offset = query.offset ? clampInt(toInt(query.offset, 0), 0, 100_000) : (page - 1) * limit;
 
-    const result = getPlayers(query.search, limit, offset, query.season);
+    const result = await getPlayers(query.search, limit, offset, query.season);
 
     return {
       data: result.data,
@@ -86,7 +86,7 @@ export async function nbaRoutes(app: FastifyInstance) {
 
   app.get('/players/:playerId', async (request, reply) => {
     const params = request.params as { playerId: string };
-    const player = getPlayerById(params.playerId);
+    const player = await getPlayerById(params.playerId);
 
     if (!player) {
       reply.code(404);
@@ -114,7 +114,7 @@ export async function nbaRoutes(app: FastifyInstance) {
     const limit = isPremium ? requestedLimit : Math.min(requestedLimit, FREE_GAMES_MAX);
     const offset = isPremium ? clampInt(toInt(query.offset, 0), 0, 100_000) : 0;
 
-    const result = getPlayerGames(params.playerId, {
+    const result = await getPlayerGames(params.playerId, {
       limit,
       offset,
       season: query.season,
@@ -145,7 +145,7 @@ export async function nbaRoutes(app: FastifyInstance) {
     const requestedScope = parseShotScope(query.scope, isPremium ? 'all' : 'recent');
     const scope: ShotScope = isPremium ? requestedScope : 'recent';
 
-    const result = getPlayerShots(params.playerId, {
+    const result = await getPlayerShots(params.playerId, {
       season: query.season,
       limit,
       offset,
@@ -167,13 +167,13 @@ export async function nbaRoutes(app: FastifyInstance) {
 
   app.get('/teams', async () => {
     return {
-      data: getTeams()
+      data: await getTeams()
     };
   });
 
   app.get('/teams/:teamId', async (request, reply) => {
     const params = request.params as { teamId: string };
-    const team = getTeamById(params.teamId);
+    const team = await getTeamById(params.teamId);
 
     if (!team) {
       reply.code(404);
@@ -206,7 +206,7 @@ export async function nbaRoutes(app: FastifyInstance) {
       };
     }
 
-    const board = getLeaderboards(requestedMetric, query.season, limit);
+    const board = await getLeaderboards(requestedMetric, query.season, limit);
 
     return {
       data: board.rows,
@@ -232,7 +232,7 @@ export async function nbaRoutes(app: FastifyInstance) {
       };
     }
 
-    const result = comparePlayers(compareIds, query.season);
+    const result = await comparePlayers(compareIds, query.season);
 
     if (!result) {
       reply.code(404);

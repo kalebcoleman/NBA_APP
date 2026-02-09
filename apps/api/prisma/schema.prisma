@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -118,4 +118,40 @@ model AuditLog {
 
   @@index([actorKey, createdAt])
   @@map("audit_logs")
+}
+
+model EspnUpcomingGameSnapshot {
+  gameId       String   @id @map("game_id")
+  startTime    DateTime @map("start_time")
+  status       String?
+  season       String?
+  seasonType   String?  @map("season_type")
+  homeTeamId   String   @map("home_team_id")
+  homeTeamName String   @map("home_team_name")
+  awayTeamId   String   @map("away_team_id")
+  awayTeamName String   @map("away_team_name")
+  homeRecord   String?  @map("home_record")
+  awayRecord   String?  @map("away_record")
+  homeLast10   String?  @map("home_last_10")
+  awayLast10   String?  @map("away_last_10")
+  source       String?
+  lastSyncedAt DateTime @default(now()) @map("last_synced_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([startTime])
+  @@index([homeTeamId, startTime])
+  @@index([awayTeamId, startTime])
+  @@map("espn_upcoming_game_snapshots")
+}
+
+model EspnSyncState {
+  syncKey       String    @id @map("sync_key")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  lastSuccessAt DateTime? @map("last_success_at")
+  lastError     String?   @map("last_error")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("espn_sync_state")
 }

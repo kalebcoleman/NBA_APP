@@ -1,13 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 
 import { getPlanLimits } from '../config/plans.js';
-import { getUserEntitlement } from '../services/entitlement-service.js';
+import { getUserEntitlement, syncAuthenticatedUserPlan } from '../services/entitlement-service.js';
 import { getUserById } from '../services/user-service.js';
 import { getDailyUsage, getTodayKey } from '../services/usage-service.js';
 
 export async function meRoutes(app: FastifyInstance) {
   app.get('/me', async (request, reply) => {
-    if (!request.auth.userId) {
+    if (!request.auth.userId || !request.auth.isAuthenticated) {
       reply.code(401);
       return {
         error: {
@@ -28,7 +28,8 @@ export async function meRoutes(app: FastifyInstance) {
       };
     }
 
-    const entitlement = await getUserEntitlement(user.id, user.plan);
+    const entitlement = await syncAuthenticatedUserPlan(user.id)
+      ?? await getUserEntitlement(user.id, user.plan);
     const planLimits = getPlanLimits(entitlement.plan);
     const usageDate = getTodayKey();
     const usage = await getDailyUsage(user.id, usageDate);

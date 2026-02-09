@@ -61,7 +61,7 @@ export async function askQuestion(input: QaAskInput): Promise<QaAskOutput> {
   const intentParams = intent.params as unknown as Prisma.InputJsonValue;
 
   const startedAt = Date.now();
-  const result = executeTemplate(intent.type, intent.params, {
+  const result = await executeTemplate(intent.type, intent.params, {
     rowLimit: entitlement.qaRowLimit
   });
 

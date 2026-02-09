@@ -1,4 +1,4 @@
-import { sqlite } from '../db/sqlite.js';
+import { prisma } from '../db/prisma.js';
 import { getLatestSeason } from '../services/nba-service.js';
 
 export interface QaResult {
@@ -14,45 +14,37 @@ export interface QaExecutionContext {
   rowLimit: number;
 }
 
-function normalizeSeason(input: unknown): string {
+async function normalizeSeason(input: unknown): Promise<string> {
   if (typeof input === 'string' && /^\d{4}-\d{2}$/.test(input)) {
     return input;
   }
-  return getLatestSeason() ?? '2025-26';
+  return (await getLatestSeason()) ?? '2025-26';
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function runTopScorersTemplate(params: Record<string, unknown>, context: QaExecutionContext): QaResult {
-  const season = normalizeSeason(params.season);
+async function runTopScorersTemplate(params: Record<string, unknown>, context: QaExecutionContext): Promise<QaResult> {
+  const season = await normalizeSeason(params.season);
   const requested = typeof params.limit === 'number' ? params.limit : 10;
   const limit = clamp(requested, 3, context.rowLimit);
 
-  const rows = sqlite
-    .prepare(
-      `SELECT
-         player_id,
-         player_name,
-         MAX(team_abbrev) AS team_abbrev,
-         COUNT(*) AS games,
-         ROUND(AVG(points), 2) AS ppg
-       FROM v_player_game_logs
-       WHERE season = ?
-         AND season_type = 'regular'
-       GROUP BY player_id, player_name
-       HAVING COUNT(*) >= 5
-       ORDER BY ppg DESC
-       LIMIT ?`
-    )
-    .all(season, limit) as Array<{
-      player_id: string;
-      player_name: string;
-      team_abbrev: string;
-      games: number;
-      ppg: number;
-    }>;
+  const rows = await prisma.$queryRaw<Array<{ player_id: string; player_name: string; team_abbrev: string; games: bigint; ppg: number }>>`
+    SELECT
+      player_id,
+      player_name,
+      MAX(team_abbrev) AS team_abbrev,
+      COUNT(*)::integer AS games,
+      ROUND(AVG(points)::numeric, 2)::float AS ppg
+    FROM v_player_game_logs
+    WHERE season = ${season}
+      AND season_type = 'regular'
+    GROUP BY player_id, player_name
+    HAVING COUNT(*) >= 5
+    ORDER BY ppg DESC
+    LIMIT ${limit}
+  `;
 
   if (rows.length === 0) {
     return {
@@ -61,10 +53,10 @@ function runTopScorersTemplate(params: Record<string, unknown>, context: QaExecu
   }
 
   return {
-    answer: `Top scorers for ${season} are ranked by regular-season points per game.` ,
+    answer: `Top scorers for ${season} are ranked by regular-season points per game.`,
     table: {
       columns: ['Player', 'Team', 'Games', 'PPG'],
-      rows: rows.map((row) => [row.player_name, row.team_abbrev, row.games, row.ppg])
+      rows: rows.map((row) => [row.player_name, row.team_abbrev, Number(row.games), row.ppg])
     },
     chartSpec: {
       type: 'bar',
@@ -75,7 +67,7 @@ function runTopScorersTemplate(params: Record<string, unknown>, context: QaExecu
   };
 }
 
-function runPlayerAveragePointsTemplate(params: Record<string, unknown>, context: QaExecutionContext): QaResult {
+async function runPlayerAveragePointsTemplate(params: Record<string, unknown>, context: QaExecutionContext): Promise<QaResult> {
   const playerName = typeof params.playerName === 'string' ? params.playerName.trim() : '';
   if (!playerName) {
     return {
@@ -83,19 +75,18 @@ function runPlayerAveragePointsTemplate(params: Record<string, unknown>, context
     };
   }
 
-  const season = normalizeSeason(params.season);
+  const season = await normalizeSeason(params.season);
   const lastNGamesRaw = typeof params.lastNGames === 'number' ? params.lastNGames : 10;
   const lastNGames = clamp(lastNGamesRaw, 3, Math.min(30, context.rowLimit));
 
-  const player = sqlite
-    .prepare(
-      `SELECT player_id, full_name
-       FROM v_players
-       WHERE full_name LIKE '%' || ? || '%'
-       ORDER BY full_name ASC
-       LIMIT 1`
-    )
-    .get(playerName) as { player_id: string; full_name: string } | undefined;
+  const playerRows = await prisma.$queryRaw<Array<{ player_id: string; full_name: string }>>`
+    SELECT player_id, full_name
+    FROM v_players
+    WHERE full_name ILIKE '%' || ${playerName} || '%'
+    ORDER BY full_name ASC
+    LIMIT 1
+  `;
+  const player = playerRows[0];
 
   if (!player) {
     return {
@@ -103,21 +94,15 @@ function runPlayerAveragePointsTemplate(params: Record<string, unknown>, context
     };
   }
 
-  const games = sqlite
-    .prepare(
-      `SELECT game_date, opponent_team_abbrev, points
-       FROM v_player_game_logs
-       WHERE player_id = ?
-         AND season = ?
-         AND season_type = 'regular'
-       ORDER BY COALESCE(game_date, '1900-01-01') DESC, game_id DESC
-       LIMIT ?`
-    )
-    .all(player.player_id, season, lastNGames) as Array<{
-      game_date: string;
-      opponent_team_abbrev: string;
-      points: number;
-    }>;
+  const games = await prisma.$queryRaw<Array<{ game_date: string; opponent_team_abbrev: string; points: number }>>`
+    SELECT game_date, opponent_team_abbrev, points
+    FROM v_player_game_logs
+    WHERE player_id = ${player.player_id}
+      AND season = ${season}
+      AND season_type = 'regular'
+    ORDER BY COALESCE(game_date, '1900-01-01') DESC, game_id DESC
+    LIMIT ${lastNGames}
+  `;
 
   if (games.length === 0) {
     return {
@@ -142,7 +127,7 @@ function runPlayerAveragePointsTemplate(params: Record<string, unknown>, context
   };
 }
 
-function runTeamNetRatingTrendTemplate(params: Record<string, unknown>, context: QaExecutionContext): QaResult {
+async function runTeamNetRatingTrendTemplate(params: Record<string, unknown>, context: QaExecutionContext): Promise<QaResult> {
   const teamName = typeof params.teamName === 'string' ? params.teamName.trim() : '';
   if (!teamName) {
     return {
@@ -150,20 +135,19 @@ function runTeamNetRatingTrendTemplate(params: Record<string, unknown>, context:
     };
   }
 
-  const season = normalizeSeason(params.season);
+  const season = await normalizeSeason(params.season);
   const requested = typeof params.limit === 'number' ? params.limit : 20;
   const limit = clamp(requested, 5, Math.min(40, context.rowLimit));
 
-  const team = sqlite
-    .prepare(
-      `SELECT team_id, team_abbrev, team_name
-       FROM v_teams
-       WHERE team_name LIKE '%' || ? || '%'
-          OR team_abbrev = UPPER(?)
-       ORDER BY team_abbrev
-       LIMIT 1`
-    )
-    .get(teamName, teamName) as { team_id: string; team_abbrev: string; team_name: string } | undefined;
+  const teamRows = await prisma.$queryRaw<Array<{ team_id: string; team_abbrev: string; team_name: string }>>`
+    SELECT team_id, team_abbrev, team_name
+    FROM v_teams
+    WHERE team_name ILIKE '%' || ${teamName} || '%'
+       OR team_abbrev = UPPER(${teamName})
+    ORDER BY team_abbrev
+    LIMIT 1
+  `;
+  const team = teamRows[0];
 
   if (!team) {
     return {
@@ -171,23 +155,18 @@ function runTeamNetRatingTrendTemplate(params: Record<string, unknown>, context:
     };
   }
 
-  const trendRows = sqlite
-    .prepare(
-      `SELECT
-         g.game_date,
-         ROUND(tba.netRating, 2) AS net_rating
-       FROM nba_stats_team_box_advanced tba
-       LEFT JOIN nba_stats_games g ON g.game_id = tba.gameId
-       WHERE tba.season = ?
-         AND tba.season_type = 'regular'
-         AND tba.teamTricode = ?
-       ORDER BY COALESCE(g.game_date, '1900-01-01') DESC, tba.gameId DESC
-       LIMIT ?`
-    )
-    .all(season, team.team_abbrev, limit) as Array<{
-      game_date: string;
-      net_rating: number;
-    }>;
+  const trendRows = await prisma.$queryRaw<Array<{ game_date: string; net_rating: number }>>`
+    SELECT
+      g.game_date,
+      ROUND(tba."netRating"::numeric, 2)::float AS net_rating
+    FROM nba_stats_team_box_advanced tba
+    LEFT JOIN nba_stats_games g ON g.game_id = tba."gameId"
+    WHERE tba.season = ${season}
+      AND tba.season_type = 'regular'
+      AND tba."teamTricode" = ${team.team_abbrev}
+    ORDER BY COALESCE(g.game_date, '1900-01-01') DESC, tba."gameId" DESC
+    LIMIT ${limit}
+  `;
 
   if (trendRows.length === 0) {
     return {
@@ -212,14 +191,14 @@ function runTeamNetRatingTrendTemplate(params: Record<string, unknown>, context:
   };
 }
 
-export function executeTemplate(intentType: string, params: Record<string, unknown>, context: QaExecutionContext): QaResult {
+export async function executeTemplate(intentType: string, params: Record<string, unknown>, context: QaExecutionContext): Promise<QaResult> {
   switch (intentType) {
     case 'TOP_SCORERS_SEASON':
-      return runTopScorersTemplate(params, context);
+      return await runTopScorersTemplate(params, context);
     case 'PLAYER_AVG_POINTS_LAST_N_GAMES':
-      return runPlayerAveragePointsTemplate(params, context);
+      return await runPlayerAveragePointsTemplate(params, context);
     case 'TEAM_NET_RATING_TREND':
-      return runTeamNetRatingTrendTemplate(params, context);
+      return await runTeamNetRatingTrendTemplate(params, context);
     default:
       return {
         answer:

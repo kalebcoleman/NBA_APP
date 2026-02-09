@@ -2,6 +2,7 @@ export interface UserProfile {
   id: string;
   email: string;
   plan: "free" | "premium";
+  isAuthenticated: boolean;
   limits: {
     qaQueriesPerDay: number;
     compareMaxPlayers: number;
@@ -9,7 +10,7 @@ export interface UserProfile {
   };
   usageRemaining: {
     qa: number;
-  };
+  } | null;
 }
 
 export interface PaginatedResponse<T> {
@@ -152,6 +153,37 @@ export interface QAResponse {
     queriesUsed: number;
     queriesRemaining: number;
     plan: string;
+  };
+}
+
+export interface UpcomingGame {
+  gameId: string;
+  startTime: string;
+  status: string;
+  homeTeam: {
+    teamId: string;
+    name: string;
+    abbreviation: string;
+    record: string;
+    last10: string;
+  };
+  awayTeam: {
+    teamId: string;
+    name: string;
+    abbreviation: string;
+    record: string;
+    last10: string;
+  };
+  lastSyncedAt: string;
+  isStale: boolean;
+}
+
+export interface UpcomingGamesResponse {
+  data: UpcomingGame[];
+  meta: {
+    from: string;
+    to: string;
+    total: number;
   };
 }
 

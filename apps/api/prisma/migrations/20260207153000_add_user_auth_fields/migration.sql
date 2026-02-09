@@ -1,5 +1,5 @@
 ALTER TABLE "users"
-  ADD COLUMN "password_hash" TEXT;
+  ADD COLUMN IF NOT EXISTS "password_hash" TEXT;
 
 UPDATE "users"
 SET "email" = LOWER(TRIM("email"))

@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
@@ -10,8 +9,7 @@ dotenv.config();
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  DATABASE_PATH: z.string().default('./db/local/nba.sqlite'),
-  DATABASE_URL: z.string().optional(),
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   PORT: z.coerce.number().int().positive().optional(),
   API_PORT: z.coerce.number().int().positive().optional(),
   API_BASE_URL: z.string().default('http://localhost:3001'),
@@ -32,7 +30,9 @@ const envSchema = z.object({
   FREE_QA_DAILY_LIMIT: z.coerce.number().int().positive().default(5),
   PREMIUM_QA_DAILY_LIMIT: z.coerce.number().int().positive().default(5000),
   FREE_QA_ROW_LIMIT: z.coerce.number().int().positive().default(50),
-  PREMIUM_QA_ROW_LIMIT: z.coerce.number().int().positive().default(500)
+  PREMIUM_QA_ROW_LIMIT: z.coerce.number().int().positive().default(500),
+  ESPN_SYNC_ENABLED: z.string().optional().default(''),
+  ESPN_SYNC_INTERVAL_MINUTES: z.coerce.number().int().positive().default(60)
 });
 
 const parsed = envSchema.parse(process.env);
@@ -41,31 +41,6 @@ function resolveAbsolutePath(value: string): string {
   return path.isAbsolute(value) ? value : path.resolve(workspaceRoot, value);
 }
 
-function filePathFromDatabaseUrl(value: string): string | null {
-  if (value.startsWith('file://')) {
-    return fileURLToPath(value);
-  }
-
-  if (value.startsWith('file:')) {
-    return resolveAbsolutePath(value.slice('file:'.length));
-  }
-
-  if (/^[a-zA-Z]+:/.test(value)) {
-    return null;
-  }
-
-  return resolveAbsolutePath(value);
-}
-
-const explicitDatabaseUrl = parsed.DATABASE_URL?.trim();
-const inferredDatabasePath = explicitDatabaseUrl ? filePathFromDatabaseUrl(explicitDatabaseUrl) : null;
-const databasePath = inferredDatabasePath ?? resolveAbsolutePath(parsed.DATABASE_PATH);
-const databaseUrl = explicitDatabaseUrl && explicitDatabaseUrl.length > 0
-  ? (/^[a-zA-Z]+:/.test(explicitDatabaseUrl)
-      ? explicitDatabaseUrl
-      : `file:${resolveAbsolutePath(explicitDatabaseUrl)}`)
-  : `file:${databasePath}`;
-
 const apiPort = parsed.API_PORT ?? parsed.PORT ?? 3001;
 const requestedDevPremiumBypass = parsed.DEV_PREMIUM_BYPASS.trim().toLowerCase() === 'true';
 const devPremiumBypass = parsed.NODE_ENV === 'production' ? false : requestedDevPremiumBypass;
@@ -73,17 +48,24 @@ const corsAllowedOrigins = parsed.CORS_ALLOWED_ORIGINS
   .split(',')
   .map((origin) => origin.trim())
   .filter((origin) => origin.length > 0);
+const espnSyncEnabled = (() => {
+  if (!parsed.ESPN_SYNC_ENABLED) {
+    return parsed.NODE_ENV !== 'test';
+  }
+
+  const normalized = parsed.ESPN_SYNC_ENABLED.trim().toLowerCase();
+  return ['1', 'true', 'yes', 'on'].includes(normalized);
+})();
 
 // Prisma expects DATABASE_URL.
-process.env.DATABASE_URL = databaseUrl;
+process.env.DATABASE_URL = parsed.DATABASE_URL;
 
 export const env = {
   nodeEnv: parsed.NODE_ENV,
   apiPort,
   apiBaseUrl: parsed.API_BASE_URL || parsed.NEXT_PUBLIC_API_BASE_URL,
   corsAllowedOrigins,
-  databasePath,
-  databaseUrl,
+  databaseUrl: parsed.DATABASE_URL,
   jwtSecret: parsed.JWT_SECRET,
   nextAuthSecret: parsed.NEXTAUTH_SECRET,
   devPremiumBypass,
@@ -94,6 +76,8 @@ export const env = {
   premiumQaDailyLimit: parsed.PREMIUM_QA_DAILY_LIMIT,
   freeQaRowLimit: parsed.FREE_QA_ROW_LIMIT,
   premiumQaRowLimit: parsed.PREMIUM_QA_ROW_LIMIT,
+  espnSyncEnabled,
+  espnSyncIntervalMinutes: parsed.ESPN_SYNC_INTERVAL_MINUTES,
   stripe: {
     secretKey: parsed.STRIPE_SECRET_KEY,
     webhookSecret: parsed.STRIPE_WEBHOOK_SECRET,

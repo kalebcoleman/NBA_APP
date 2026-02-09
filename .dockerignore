@@ -23,4 +23,5 @@ coverage/
 tmp/
 temp/
 
-# Keep db/local/nba.sqlite included because API image bakes it in.
+# Do not upload local SQLite copies in image build context.
+db/local/*.sqlite

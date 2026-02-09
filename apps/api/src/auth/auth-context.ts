@@ -2,8 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import jwt from 'jsonwebtoken';
 
 import { env } from '../config/env.js';
-import { getUserEntitlement, setUserPlan, syncAuthenticatedUserPlan } from '../services/entitlement-service.js';
-import { getUserByExternalKey, getUserById, upsertUserFromActor } from '../services/user-service.js';
+import { getUserByExternalKey, getUserById } from '../services/user-service.js';
 import { extractBearerToken, sha256 } from '../utils/security.js';
 
 interface JwtClaims {
@@ -31,6 +30,7 @@ export async function authContextHook(request: FastifyRequest): Promise<void> {
   let actorKey = actorKeyFromIp(request);
   let isAuthenticated = false;
   let userId: string | null = null;
+  let plan: 'FREE' | 'PREMIUM' = 'FREE';
 
   if (token) {
     try {
@@ -46,6 +46,7 @@ export async function authContextHook(request: FastifyRequest): Promise<void> {
           actorKey = `user:${authenticatedUser.id}`;
           userId = authenticatedUser.id;
           isAuthenticated = true;
+          plan = authenticatedUser.plan;
         }
       }
     } catch {
@@ -53,30 +54,10 @@ export async function authContextHook(request: FastifyRequest): Promise<void> {
     }
   }
 
-  if (isAuthenticated && userId) {
-    const entitlement = await syncAuthenticatedUserPlan(userId);
-    request.auth = {
-      actorKey,
-      userId,
-      isAuthenticated: true,
-      plan: entitlement?.plan ?? 'FREE'
-    };
-    return;
-  }
-
-  const user = await upsertUserFromActor(actorKey);
-  if (!isAuthenticated && user.plan !== 'FREE') {
-    await setUserPlan(user.id, 'FREE');
-  }
-
-  const fallbackPlan = 'FREE';
-  const entitlement = await getUserEntitlement(user.id, fallbackPlan);
-  const effectivePlan = 'FREE';
-
   request.auth = {
     actorKey,
-    userId: user.id,
+    userId,
     isAuthenticated,
-    plan: effectivePlan
+    plan
   };
 }

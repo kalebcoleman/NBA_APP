@@ -101,7 +101,7 @@ export default function ComparePage() {
             </div>
           )}
 
-          {selectedIds.length >= maxPlayers && user?.plan === "free" && (
+          {selectedIds.length >= maxPlayers && user?.plan !== "premium" && (
             <UpgradePrompt compact message="Compare up to 5 players with Premium" />
           )}
 

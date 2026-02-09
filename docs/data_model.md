@@ -13,6 +13,8 @@ SQLite database at `db/local/nba.sqlite` (~7 GB). Contains data from two sources
 | ESPN | `espn_*` | Games, teams, player box scores, game events |
 | NBA Stats | `nba_stats_*` | Games, box scores (traditional/advanced/usage/four factors), shots, play-by-play |
 
+Operational/auth/billing data is stored in PostgreSQL via Prisma models (`users`, `subscriptions`, `entitlements`, `usage_daily`, etc.). Upcoming-game ESPN cache is also stored in PostgreSQL (`espn_upcoming_game_snapshots`, `espn_sync_state`).
+
 ### Row Counts (approximate)
 
 | Table | Rows |

@@ -5,8 +5,7 @@ Base URL (local): `http://localhost:3001`
 Auth behavior:
 
 - If `Authorization: Bearer <jwt>` is provided, backend verifies token and resolves user identity from JWT `sub` (`userId`).
-- Otherwise backend falls back to anonymous identity based on IP hash.
-- Anonymous requests are always treated as `FREE` plan.
+- If no token is provided, request context is anonymous (`userId=null`, `plan=FREE`) and only public endpoints are accessible.
 
 ## Health
 
@@ -18,9 +17,15 @@ Response:
 {
   "ok": true,
   "service": "nba-api",
-  "timestamp": "2026-02-07T20:00:00.000Z"
+  "timestamp": "2026-02-07T20:00:00.000Z",
+  "checks": {
+    "sqlite": "ok",
+    "postgres": "ok"
+  }
 }
 ```
+
+Failure response uses `503` with `ok: false` and the same `checks` object set to `"error"` values.
 
 ## Auth
 
@@ -131,8 +136,8 @@ Returns player profile + summary averages.
 
 Returns paginated game logs ordered by most recent first (`game_date DESC`, then `game_id DESC`).
 
-- Default source is `v_player_game_logs_played` (DNP/inactive rows filtered out).
-- `includeDNP=true` switches source to full `v_player_game_logs`.
+- Data is read from indexed NBA stats base tables (`nba_stats_player_box_traditional` + joins).
+- `includeDNP=true` includes inactive/DNP rows.
 - Alias: `GET /players/:playerId/gamelog` is identical.
 
 Freemium behavior:
@@ -175,6 +180,46 @@ Returns teams from canonical `v_teams`.
 
 Returns one team + summary stats.
 
+### `GET /games/upcoming?from=&to=&teamId=&limit=`
+
+Returns upcoming game context sourced from ESPN data and served from the backend cache.
+
+Query params:
+
+- `from` (optional ISO datetime, default now)
+- `to` (optional ISO datetime, default now + 14 days)
+- `teamId` (optional; matches either home or away team)
+- `limit` (optional; default 50, max 200)
+
+Response:
+
+```json
+{
+  "data": [
+    {
+      "gameId": "401811048",
+      "startTime": "2026-04-13T00:30:00.000Z",
+      "status": "Scheduled",
+      "homeTeam": { "teamId": "6", "name": "Dallas Mavericks" },
+      "awayTeam": { "teamId": "4", "name": "Chicago Bulls" },
+      "homeRecord": "42-21",
+      "awayRecord": "31-33",
+      "homeLast10": "6-4",
+      "awayLast10": "4-6",
+      "lastSyncedAt": "2026-02-08T21:00:00.000Z",
+      "isStale": false
+    }
+  ],
+  "meta": {
+    "from": "2026-02-08T21:00:00.000Z",
+    "to": "2026-02-22T21:00:00.000Z",
+    "limit": 50,
+    "lastSyncedAt": "2026-02-08T21:00:00.000Z",
+    "isStale": false
+  }
+}
+```
+
 ### `GET /leaderboards?metric=&season=&limit=`
 
 Allowed metrics:
@@ -216,8 +261,8 @@ Compares aggregated regular-season stats for two players.
 
 Returns current user identity, plan, limits, and today usage summary.
 
+- Requires `Authorization: Bearer <jwt>`.
 - With valid JWT: `isAuthenticated=true`, actor key is `user:<id>`.
-- Without JWT: `isAuthenticated=false`, actor key is `anon:<hash>`, plan is `FREE`.
 - `PREMIUM` is granted only when the user has an `active` Stripe subscription recorded from webhook events.
 
 Response:
@@ -310,6 +355,8 @@ Body:
   "question": "Who are the top scorers in 2024-25?"
 }
 ```
+
+Requires `Authorization: Bearer <jwt>`.
 
 Response schema:
 

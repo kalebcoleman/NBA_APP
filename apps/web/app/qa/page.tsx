@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import Card from "@/components/Card";
 import LimitReached from "@/components/LimitReached";
@@ -17,7 +18,7 @@ interface ChatMessage {
 }
 
 export default function QAPage() {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -25,10 +26,10 @@ export default function QAPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (user) {
+    if (isAuthenticated && user?.usageRemaining) {
       setQueriesRemaining(user.usageRemaining.qa);
     }
-  }, [user]);
+  }, [user, isAuthenticated]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -67,7 +68,7 @@ export default function QAPage() {
     }
   };
 
-  const isLimitReached = queriesRemaining !== null && queriesRemaining <= 0 && user?.plan === "free";
+  const isLimitReached = isAuthenticated && queriesRemaining !== null && queriesRemaining <= 0 && user?.plan === "free";
 
   const suggestedQuestions = [
     "Who leads the league in scoring this season?",
@@ -82,7 +83,14 @@ export default function QAPage() {
         title="AI Q&A"
         subtitle="Ask any NBA stats question in plain English"
         actions={
-          queriesRemaining !== null && user?.plan === "free" ? (
+          !isAuthenticated ? (
+            <Link
+              href="/login?next=/qa"
+              className="rounded-full bg-nba-blue/10 px-3 py-1 text-xs font-medium text-nba-blue hover:bg-nba-blue/20"
+            >
+              Sign in to track usage and unlock Premium
+            </Link>
+          ) : queriesRemaining !== null && user?.plan === "free" ? (
             <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
               {queriesRemaining} queries remaining today
             </span>
@@ -144,7 +152,7 @@ export default function QAPage() {
               </div>
             )}
 
-            {msg.meta && msg.role === "assistant" && user?.plan === "free" && (
+            {msg.meta && msg.role === "assistant" && isAuthenticated && user?.plan === "free" && (
               <p className="mt-1 text-xs text-gray-400">
                 {msg.meta.queriesRemaining} queries remaining today
               </p>

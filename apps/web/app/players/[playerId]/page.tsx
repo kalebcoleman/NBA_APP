@@ -100,6 +100,23 @@ export default function PlayerDetailPage() {
 
   const freeTierNote = "Free plan shows last 5 games. Upgrade for full game logs, shot chart history, and trends.";
 
+  // Frontend enforcement: cap data for free users even if API returns more
+  const displayGameLog = isPremium ? gameLog : gameLog.slice(0, FREE_GAME_LIMIT);
+
+  // For free users, restrict shots to only the game IDs in the capped game log
+  const displayShots = isPremium
+    ? shots
+    : (() => {
+      const allowedGameIds = new Set(displayGameLog.map((g) => g.gameId));
+      return shots.filter((s) => allowedGameIds.has(s.gameId));
+    })();
+
+  // Trend data uses the capped game log
+  const trendData = [...displayGameLog].reverse().map((g) => ({
+    date: g.date.slice(5),
+    points: g.points,
+  }));
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -117,9 +134,9 @@ export default function PlayerDetailPage() {
         <StatCard label="PPG" value={sa.ppg.toFixed(1)} />
         <StatCard label="RPG" value={sa.rpg.toFixed(1)} />
         <StatCard label="APG" value={sa.apg.toFixed(1)} />
-        <StatCard label="FG%" value={(sa.fgPct * 100).toFixed(1) + "%"} />
-        <StatCard label="3PT%" value={(sa.threePct * 100).toFixed(1) + "%"} />
-        <StatCard label="FT%" value={(sa.ftPct * 100).toFixed(1) + "%"} />
+        <StatCard label="FG%" value={(sa.fgPct * 100).toFixed(2) + "%"} />
+        <StatCard label="3PT%" value={(sa.threePct * 100).toFixed(2) + "%"} />
+        <StatCard label="FT%" value={(sa.ftPct * 100).toFixed(2) + "%"} />
         <StatCard label="GP" value={sa.gp} />
       </div>
 
@@ -133,7 +150,7 @@ export default function PlayerDetailPage() {
                   {key.replace(/([A-Z])/g, " $1").trim()}
                 </p>
                 <p className="mt-0.5 text-lg font-bold text-gray-900">
-                  {typeof val === "number" ? (val < 1 && val > 0 ? (val * 100).toFixed(1) + "%" : val.toFixed(1)) : val}
+                  {typeof val === "number" ? (val < 1 && val > -1 && val !== 0 ? (val * 100).toFixed(2) + "%" : val.toFixed(2)) : val}
                 </p>
               </div>
             ))}
@@ -144,12 +161,12 @@ export default function PlayerDetailPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Shot Chart */}
         <Card title="Shot Chart">
-          {!isPremium && shots.length > 0 && (
+          {!isPremium && displayShots.length > 0 && (
             <UpgradePrompt compact message={freeTierNote} />
           )}
-          {shots.length > 0 ? (
+          {displayShots.length > 0 ? (
             <ShotChart
-              shots={shots}
+              shots={displayShots}
               label={!isPremium ? `Recent ${FREE_GAME_LIMIT} games` : undefined}
             />
           ) : (
@@ -161,15 +178,12 @@ export default function PlayerDetailPage() {
 
         {/* Scoring Trend */}
         <Card title={isPremium ? "Scoring Trend" : `Recent Scoring Trend (Last ${FREE_GAME_LIMIT} Games)`}>
-          {!isPremium && gameLog.length > 0 && (
+          {!isPremium && displayGameLog.length > 0 && (
             <UpgradePrompt compact message={freeTierNote} />
           )}
-          {gameLog.length > 0 ? (
+          {trendData.length > 0 ? (
             <LineChartWrapper
-              data={[...gameLog].reverse().map((g) => ({
-                date: g.date.slice(5),
-                points: g.points,
-              }))}
+              data={trendData}
               xKey="date"
               yKeys={[{ key: "points", color: "#c8102e", name: "Points" }]}
               height={350}
@@ -182,18 +196,20 @@ export default function PlayerDetailPage() {
 
       {/* Game Log */}
       <Card title="Recent Games">
-        {!isPremium && gameLog.length > 0 && (
+        {!isPremium && displayGameLog.length > 0 && (
           <UpgradePrompt compact message={freeTierNote} />
         )}
         <DataTable
           columns={[
             { key: "date", header: "Date" },
             { key: "opponent", header: "Opp" },
-            { key: "result", header: "Result", render: (r: GameLogEntry) => (
-              <span className={r.result === "W" ? "font-semibold text-green-700" : "text-red-600"}>
-                {r.result}
-              </span>
-            )},
+            {
+              key: "result", header: "Result", render: (r: GameLogEntry) => (
+                <span className={r.result === "W" ? "font-semibold text-green-700" : "text-red-600"}>
+                  {r.result}
+                </span>
+              )
+            },
             { key: "minutes", header: "MIN" },
             { key: "points", header: "PTS", align: "right", sortable: true },
             { key: "rebounds", header: "REB", align: "right", sortable: true },
@@ -202,13 +218,15 @@ export default function PlayerDetailPage() {
             { key: "fga", header: "FGA", align: "right" },
             { key: "threePm", header: "3PM", align: "right" },
             { key: "threePa", header: "3PA", align: "right" },
-            { key: "plusMinus", header: "+/-", align: "right", render: (r: GameLogEntry) => (
-              <span className={r.plusMinus > 0 ? "text-green-700" : r.plusMinus < 0 ? "text-red-600" : ""}>
-                {r.plusMinus > 0 ? "+" : ""}{r.plusMinus}
-              </span>
-            )},
+            {
+              key: "plusMinus", header: "+/-", align: "right", render: (r: GameLogEntry) => (
+                <span className={r.plusMinus > 0 ? "text-green-700" : r.plusMinus < 0 ? "text-red-600" : ""}>
+                  {r.plusMinus > 0 ? "+" : ""}{r.plusMinus}
+                </span>
+              )
+            },
           ]}
-          data={gameLog}
+          data={displayGameLog}
           emptyMessage="No game log data available"
         />
 

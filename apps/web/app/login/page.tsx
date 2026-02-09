@@ -44,7 +44,14 @@ function LoginForm() {
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
+            <p>{error}</p>
+            <button
+              type="button"
+              onClick={() => setError("")}
+              className="mt-1 text-xs font-medium text-red-800 underline hover:text-red-900"
+            >
+              Try again
+            </button>
           </div>
         )}
 

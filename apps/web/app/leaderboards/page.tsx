@@ -51,11 +51,10 @@ export default function LeaderboardsPage() {
           <button
             key={opt.value}
             onClick={() => setStat(opt.value)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-              stat === opt.value
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${stat === opt.value
                 ? "bg-nba-blue text-white"
                 : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-            }`}
+              }`}
           >
             {opt.label}
           </button>
@@ -66,14 +65,22 @@ export default function LeaderboardsPage() {
         <DataTable
           columns={[
             { key: "rank", header: "#", align: "center" },
-            { key: "name", header: "Player", sortable: true, render: (r: LeaderboardEntry) => (
-              <span className="font-medium text-gray-900">{r.name}</span>
-            )},
+            {
+              key: "name", header: "Player", sortable: true, render: (r: LeaderboardEntry) => (
+                <span className="font-medium text-gray-900">{r.name}</span>
+              )
+            },
             { key: "team", header: "Team" },
             { key: "gamesPlayed", header: "GP", align: "right" },
-            { key: "value", header: statOptions.find((s) => s.value === stat)?.label ?? stat, align: "right", sortable: true, render: (r: LeaderboardEntry) => (
-              <span className="font-bold text-nba-blue">{r.value.toFixed(1)}</span>
-            )},
+            {
+              key: "value", header: statOptions.find((s) => s.value === stat)?.label ?? stat, align: "right", sortable: true, render: (r: LeaderboardEntry) => (
+                <span className="font-bold text-nba-blue">
+                  {['fgPct', 'threePct', 'trueShootingPct', 'usagePct', 'pie'].includes(stat)
+                    ? r.value.toFixed(2)
+                    : r.value.toFixed(1)}
+                </span>
+              )
+            },
           ]}
           data={leaders}
           isLoading={loading}

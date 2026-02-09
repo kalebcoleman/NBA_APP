@@ -33,6 +33,8 @@ apps/web/app/
     page.tsx            — Leaderboards (/leaderboards)
   compare/
     page.tsx            — Compare (/compare)
+  games/
+    page.tsx            — Upcoming games schedule (/games)
   qa/
     page.tsx            — Q&A chat (/qa)
 ```
@@ -96,11 +98,14 @@ const api = {
   getTeamRoster(id): Promise<PlayerSummary[]>
   getTeamGames(id, params): Promise<GameSummary[]>
 
-  // Leaderboards
+  // Leaderboards (cached 60s TTL)
   getLeaderboard(stat, params): Promise<LeaderboardEntry[]>
 
   // Compare
   comparePlayers(ids): Promise<ComparisonData>
+
+  // Upcoming Games
+  getUpcomingGames(params): Promise<UpcomingGame[]>
 
   // Q&A
   askQuestion(question): Promise<QAResponse>
@@ -112,13 +117,19 @@ const api = {
 
 If an endpoint is not yet implemented by the backend, the client falls back to mock data and logs a `// TODO: waiting on backend` warning.
 
+### Client-side Caching
+
+- **Teams list**: cached for the entire browser session (teams rarely change mid-session).
+- **Leaderboards**: cached per metric+season+limit key with a 60-second TTL.
+- **Deduplication**: concurrent in-flight requests for the same resource are collapsed into one fetch.
+
 ---
 
 ## Auth & Plan State
 
 ```
 AuthProvider (React Context — apps/web/lib/auth-context.tsx)
-  ├── user: { id, email, plan, limits, usageRemaining } | null
+  ├── user: { id, email, plan, isAuthenticated, limits, usageRemaining } | null
   ├── isAuthenticated: boolean
   ├── isLoading: boolean
   ├── login(token) → saves JWT to localStorage, calls /me, sets user
@@ -160,7 +171,7 @@ apps/web/app/
 
 ### Data-limited sections (free = last 5 games)
 
-Backend enforces the free cap (5 games, restricted shots). Frontend displays appropriate messaging:
+Backend enforces the free cap (5 games, restricted shots). Frontend also caps displayed data to 5 games for free users, even if the API returns more, as a defense-in-depth measure:
 
 4. **Player detail — Recent Games table**: Free users see 5 rows with no pagination controls and a compact `<UpgradePrompt>` note. Premium users see full game log with a "Load more games" button (offset-based pagination, page size 20).
 5. **Player detail — Shot Chart**: Free users see shots from recent 5 games with a "Recent 5 games" label in the chart legend. Premium users see all available shots.
@@ -168,7 +179,7 @@ Backend enforces the free cap (5 games, restricted shots). Frontend displays app
 
 ### Usage-limited sections
 
-7. **Q&A page** — checks `user.usageRemaining.qa`. If 0, shows `<LimitReached />`.
+7. **Q&A page** — Anonymous users see "Sign in to track usage and unlock Premium" instead of a counter. Authenticated free users see remaining query count. If 0, shows `<LimitReached />`.
 8. **Leaderboards** — free users see top 10; `<FeatureGate>` wraps the "show all" button.
 
 ### DNP filtering
